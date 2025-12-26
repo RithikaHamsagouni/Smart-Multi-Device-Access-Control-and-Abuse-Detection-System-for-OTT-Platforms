@@ -9,6 +9,7 @@ const generateDeviceId = require("../utils/generateDeviceId");
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const sendOTPEmail = require("../utils/sendOTPEmail");
 
 
 // SIGNUP
@@ -44,20 +45,30 @@ exports.login = async (req, res) => {
 
   const deviceId = generateDeviceId(userAgent, ipAddress);
 
-  // DEVICE CHECK
-  let device = await Device.findOne({ userId: user._id, deviceId });
+  const generateOTP = require("../utils/generateOTP");
 
-  if (!device) {
-    device = await Device.create({
-      userId: user._id,
-      deviceId,
-      userAgent,
-      ipAddress
-    });
-  } else {
-    device.lastLogin = new Date();
-    await device.save();
-  }
+// DEVICE CHECK
+let device = await Device.findOne({ userId: user._id, deviceId });
+
+if (!device) {
+  const otp = generateOTP();
+
+  user.otp = otp;
+  user.otpExpiry = Date.now() + 5 * 60 * 1000;
+  await user.save();
+
+  await sendOTPEmail(user.email, otp);
+
+  return res.status(200).json({
+    message: "New device detected. OTP sent to email.",
+    otpRequired: true
+  });
+}
+
+// EXISTING DEVICE
+device.lastLogin = new Date();
+await device.save();
+
 
   // ACTIVE SESSIONS
   const activeSessions = await Session.find({
@@ -95,4 +106,39 @@ console.log("Creating session for device:", deviceId);
     message: "Login successful",
     deviceId
   });
+};
+exports.verifyOtp = async (req, res) => {
+  const { email } = req.body;
+
+  const user = await User.findOne({ email });
+  if (!user) return res.status(400).json({ message: "User not found" });
+
+  if (
+    user.otp !== req.body.otp ||
+    user.otpExpiry < Date.now()
+  ) {
+    return res.status(400).json({ message: "Invalid or expired OTP" });
+  }
+
+  // DEVICE INFO
+  const userAgent = req.headers["user-agent"];
+  const ipAddress =
+    req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+
+  const deviceId = generateDeviceId(userAgent, ipAddress);
+
+  // CREATE DEVICE AFTER OTP
+  await Device.create({
+    userId: user._id,
+    deviceId,
+    userAgent,
+    ipAddress
+  });
+
+  // CLEAR OTP
+  user.otp = null;
+  user.otpExpiry = null;
+  await user.save();
+
+  res.json({ message: "OTP verified. Device approved. Please login again." });
 };

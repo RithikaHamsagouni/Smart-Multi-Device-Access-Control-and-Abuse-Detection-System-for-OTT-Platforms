@@ -14,7 +14,9 @@ const userSchema = new mongoose.Schema({
     type: String,
     enum: ["BASIC", "STANDARD", "PREMIUM"],
     default: "BASIC"
-  }
+  },otp: String,
+otpExpiry: Date,
+
 }, { timestamps: true });
 
 module.exports = mongoose.model("User", userSchema);
