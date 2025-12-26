@@ -70,6 +70,7 @@ exports.login = async (req, res) => {
   // 🚨 FORCE LOGOUT LOGIC
   if (activeSessions.length >= maxSessions) {
     const oldestSession = activeSessions[0];
+    console.log("Force logging out session:", oldestSession._id);
     oldestSession.isActive = false;
     await oldestSession.save();
   }
@@ -80,6 +81,7 @@ exports.login = async (req, res) => {
     process.env.JWT_SECRET,
     { expiresIn: "1h" }
   );
+console.log("Creating session for device:", deviceId);
 
   // CREATE SESSION
   await Session.create({
