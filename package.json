@@ -16,9 +16,14 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.2.1",
+    "geoip-lite": "^1.4.10",
+    "ioredis": "^5.8.2",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.0.2",
-    "nodemailer": "^7.0.12"
+    "nodemailer": "^7.0.12",
+    "redis": "^5.10.0",
+    "ua-parser-js": "^2.0.7"
   },
   "devDependencies": {
     "nodemon": "^3.1.11"

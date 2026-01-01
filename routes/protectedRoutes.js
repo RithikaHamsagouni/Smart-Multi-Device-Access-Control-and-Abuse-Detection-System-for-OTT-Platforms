@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const jwt = require("jsonwebtoken");
 const Session = require("../models/Session");
+const authMiddleware = require("../middleware/authMiddleware");
 
 // Middleware: verify session
 const verifySession = async (req, res, next) => {
@@ -39,4 +40,7 @@ router.get("/protected", verifySession, (req, res) => {
   });
 });
 
+router.get("/protected", authMiddleware, (req, res) => {
+  res.json({ message: "Access granted", user: req.user });
+});
 module.exports = router;
