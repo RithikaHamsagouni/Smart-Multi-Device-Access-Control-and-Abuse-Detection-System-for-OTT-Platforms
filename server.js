@@ -1,30 +1,34 @@
 require("dotenv").config();
 const express = require("express");
+const http = require("http");
+const cors = require("cors");
 const connectDB = require("./config/db");
 const { redis } = require("./config/redis");
+const { initializeSocket } = require("./config/socket");
+
 const authRoutes = require("./routes/authRoutes");
 const protectedRoutes = require("./routes/protectedRoutes");
+const adminRoutes = require("./routes/adminRoutes");
 const { apiLimiter } = require("./middleware/rateLimiter");
 
 const app = express();
+const server = http.createServer(app);
+
+// Initialize Socket.IO
+const io = initializeSocket(server);
 
 // Middleware
+app.use(cors());
 app.use(express.json());
+app.use(express.static("public")); // Serve admin dashboard
 
 // Apply global API rate limiter
-app.use(apiLimiter);
-
-// CORS (if needed)
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  next();
-});
+app.use("/api", apiLimiter);
 
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api", protectedRoutes);
+app.use("/api/admin", adminRoutes);
 
 // Health check endpoint
 app.get("/health", async (req, res) => {
@@ -34,6 +38,7 @@ app.get("/health", async (req, res) => {
       status: "healthy",
       mongodb: "connected",
       redis: "connected",
+      socketio: "active",
       timestamp: new Date().toISOString()
     });
   } catch (err) {
@@ -42,6 +47,11 @@ app.get("/health", async (req, res) => {
       error: err.message
     });
   }
+});
+
+// Serve admin dashboard
+app.get("/admin", (req, res) => {
+  res.sendFile(__dirname + "/public/admin.html");
 });
 
 // Error handling middleware
@@ -65,10 +75,17 @@ async function startServer() {
     await redis.ping();
     console.log("✅ Redis connection verified");
     
-    // Start Express server
-    app.listen(PORT, () => {
-      console.log(`🚀 Server running on port ${PORT}`);
-      console.log(`📊 Health check: http://localhost:${PORT}/health`);
+    // Start HTTP server (with Socket.IO)
+    server.listen(PORT, () => {
+      console.log(`
+╔═══════════════════════════════════════════╗
+║   🚀 OTT Authentication System Started   ║
+╠═══════════════════════════════════════════╣
+║  Server:    http://localhost:${PORT}       ║
+║  Health:    http://localhost:${PORT}/health║
+║  Dashboard: http://localhost:${PORT}/admin ║
+╚═══════════════════════════════════════════╝
+      `);
     });
   } catch (err) {
     console.error("❌ Failed to start server:", err);
@@ -80,13 +97,19 @@ async function startServer() {
 process.on("SIGTERM", async () => {
   console.log("SIGTERM received, shutting down gracefully...");
   await redis.quit();
-  process.exit(0);
+  server.close(() => {
+    console.log("Server closed");
+    process.exit(0);
+  });
 });
 
 process.on("SIGINT", async () => {
   console.log("SIGINT received, shutting down gracefully...");
   await redis.quit();
-  process.exit(0);
+  server.close(() => {
+    console.log("Server closed");
+    process.exit(0);
+  });
 });
 
 startServer();
