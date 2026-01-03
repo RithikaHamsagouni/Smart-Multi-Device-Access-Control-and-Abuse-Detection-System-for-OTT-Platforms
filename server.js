@@ -50,8 +50,10 @@ app.get("/health", async (req, res) => {
 });
 
 // Serve admin dashboard
+const path = require("path");
+
 app.get("/admin", (req, res) => {
-  res.sendFile(__dirname + "/public/admin.html");
+  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 // Error handling middleware
