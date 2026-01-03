@@ -4,15 +4,15 @@ const User = require("../models/User");
 const Device = require("../models/Device");
 const Session = require("../models/Session");
 
-
 // Redis & Utils
-const { sessionHelpers } = require("../config/redis");
+const { sessionHelpers, redis } = require("../config/redis");
 const { checkGeoImpossibility, storeLocationHistory } = require("../utils/geoDetection");
 const deviceTrustScorer = require("../utils/deviceTrustScoring");
 const { generateEnhancedFingerprint, detectSpoofing } = require("../utils/enhancedFingerprint");
 const generateOTP = require("../utils/generateOTP");
 const sendOTPEmail = require("../utils/sendOTPEmail");
 const { blockUser } = require("../middleware/rateLimiter");
+const alertRulesEngine = require("../utils/alertRulesEngine");
 
 const getMaxSessions = (plan) => {
   if (plan === "BASIC") return 1;
@@ -76,8 +76,23 @@ exports.login = async (req, res) => {
     const ipAddress = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
     const geoCheck = await checkGeoImpossibility(user._id, ipAddress);
     
+    // Evaluate alert rules
+    const alertContext = {
+      userId: user._id,
+      email: user.email,
+      deviceId,
+      ipAddress,
+      geoCheck,
+      trustScore: 50, // Will be updated later
+      location: geoCheck.currentLocation,
+      isNewDevice: false
+    };
+    
     if (geoCheck.isImpossible) {
       console.warn(`🌍 Geo-impossibility detected for ${email}:`, geoCheck.reason);
+      
+      // Trigger alert
+      await alertRulesEngine.evaluateRules(alertContext);
       
       // Force OTP verification for impossible travel
       const otp = generateOTP();
@@ -104,10 +119,24 @@ exports.login = async (req, res) => {
 
     console.log(`🎯 Trust Score for ${email}: ${trustScore.score}/100 (${trustScore.level})`);
 
+    // Update alert context with trust score
+    alertContext.trustScore = trustScore.score;
+    alertContext.isNewDevice = !device;
+    
+    // Check device sharing
+    const deviceUserKey = `device:${deviceId}:users`;
+    const deviceUserCount = await redis.scard(deviceUserKey);
+    alertContext.deviceUserCount = deviceUserCount;
+
     // 6. Check if device exists
     let device = await Device.findOne({ userId: user._id, deviceId });
 
     if (!device) {
+      alertContext.isNewDevice = true;
+      
+      // Trigger alert for new device if trust is low
+      await alertRulesEngine.evaluateRules(alertContext);
+      
       // New device - require OTP if trust score is low
       if (trustScore.score < 60) {
         const otp = generateOTP();
@@ -134,6 +163,9 @@ exports.login = async (req, res) => {
         trusted: true
       });
     }
+
+    // Evaluate all alert rules
+    await alertRulesEngine.evaluateRules(alertContext);
 
     // 7. Update device last login
     device.lastLogin = new Date();

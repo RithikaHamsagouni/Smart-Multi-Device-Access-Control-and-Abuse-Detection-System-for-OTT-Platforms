@@ -2,6 +2,9 @@ require("dotenv").config();
 const express = require("express");
 const http = require("http");
 const cors = require("cors");
+const swaggerUi = require("swagger-ui-express");
+const swaggerDocs = require("./config/swagger");
+
 const connectDB = require("./config/db");
 const { redis } = require("./config/redis");
 const { initializeSocket } = require("./config/socket");
@@ -20,7 +23,13 @@ const io = initializeSocket(server);
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static("public")); // Serve admin dashboard
+app.use(express.static("public"));
+
+// Swagger Documentation
+if (process.env.API_DOCS_ENABLED === "true") {
+  app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocs));
+  console.log("📚 API Documentation available at: http://localhost:5000/api-docs");
+}
 
 // Apply global API rate limiter
 app.use("/api", apiLimiter);
@@ -39,6 +48,7 @@ app.get("/health", async (req, res) => {
       mongodb: "connected",
       redis: "connected",
       socketio: "active",
+      swagger: process.env.API_DOCS_ENABLED === "true",
       timestamp: new Date().toISOString()
     });
   } catch (err) {
@@ -50,10 +60,8 @@ app.get("/health", async (req, res) => {
 });
 
 // Serve admin dashboard
-const path = require("path");
-
 app.get("/admin", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
+  res.sendFile(__dirname + "/public/admin.html");
 });
 
 // Error handling middleware
@@ -70,14 +78,10 @@ const PORT = process.env.PORT || 5000;
 
 async function startServer() {
   try {
-    // Connect to MongoDB
     await connectDB();
-    
-    // Verify Redis connection
     await redis.ping();
     console.log("✅ Redis connection verified");
     
-    // Start HTTP server (with Socket.IO)
     server.listen(PORT, () => {
       console.log(`
 ╔═══════════════════════════════════════════╗
@@ -86,6 +90,7 @@ async function startServer() {
 ║  Server:    http://localhost:${PORT}       ║
 ║  Health:    http://localhost:${PORT}/health║
 ║  Dashboard: http://localhost:${PORT}/admin ║
+║  API Docs:  http://localhost:${PORT}/api-docs║
 ╚═══════════════════════════════════════════╝
       `);
     });
@@ -95,7 +100,6 @@ async function startServer() {
   }
 }
 
-// Handle graceful shutdown
 process.on("SIGTERM", async () => {
   console.log("SIGTERM received, shutting down gracefully...");
   await redis.quit();
